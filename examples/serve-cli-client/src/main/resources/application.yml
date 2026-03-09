@@ -1,0 +1,7 @@
+spring:
+  main:
+    web-application-type: none
+
+serve:
+  server:
+    url: ws://localhost:8080/ws/websocket
