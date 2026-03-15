@@ -69,7 +69,9 @@
     <modules>
         <module>spring-ai-agent-serve-core</module>
         <module>spring-ai-agent-serve-websocket</module>
-        <module>spring-ai-agent-serve-starter</module>
+        <module>spring-ai-agent-serve-sse</module>
+        <module>spring-ai-agent-serve-starter-websocket</module>
+        <module>spring-ai-agent-serve-starter-sse</module>
         <module>examples</module>
     </modules>
 

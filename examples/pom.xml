@@ -25,9 +25,11 @@
     </properties>
 
     <modules>
-        <module>serve-chatbot-demo</module>
-        <module>serve-cli-client</module>
-        <module>serve-programmatic-demo</module>
+        <module>websocket/chatbot-demo</module>
+        <module>websocket/cli-client</module>
+        <module>sse/chatbot-demo</module>
+        <module>sse/cli-client</module>
+        <module>programmatic-demo</module>
     </modules>
 
     <repositories>

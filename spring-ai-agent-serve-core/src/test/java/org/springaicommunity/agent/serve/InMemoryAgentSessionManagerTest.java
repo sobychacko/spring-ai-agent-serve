@@ -15,6 +15,7 @@
  */
 package org.springaicommunity.agent.serve;
 
+import java.time.Duration;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -244,6 +245,111 @@ class InMemoryAgentSessionManagerTest {
 
 			assertThat(snapshot).containsExactly("s1");
 			assertThat(snapshot).doesNotContain("s2");
+		}
+
+	}
+
+	@Nested
+	@DisplayName("Session Eviction")
+	class SessionEviction {
+
+		@Test
+		@DisplayName("Should evict idle session beyond TTL")
+		void shouldEvictIdleSession() throws Exception {
+			wireBuilderChain();
+			InMemoryAgentSessionManager evictingManager = new InMemoryAgentSessionManager(
+					chatClientBuilder, 500, null, null, Duration.ofMillis(50), Duration.ofHours(1));
+			try {
+				evictingManager.getOrCreate("idle-session");
+				assertThat(evictingManager.activeSessions()).containsExactly("idle-session");
+
+				// Wait for the session to become idle beyond TTL
+				Thread.sleep(100);
+				evictingManager.evictExpiredSessions();
+
+				assertThat(evictingManager.activeSessions()).isEmpty();
+			}
+			finally {
+				evictingManager.close();
+			}
+		}
+
+		@Test
+		@DisplayName("Should not evict active session within TTL")
+		void shouldNotEvictActiveSession() throws Exception {
+			wireBuilderChain();
+			InMemoryAgentSessionManager evictingManager = new InMemoryAgentSessionManager(
+					chatClientBuilder, 500, null, null, Duration.ofSeconds(10), Duration.ofHours(1));
+			try {
+				evictingManager.getOrCreate("active-session");
+				evictingManager.evictExpiredSessions();
+
+				assertThat(evictingManager.activeSessions()).containsExactly("active-session");
+			}
+			finally {
+				evictingManager.close();
+			}
+		}
+
+		@Test
+		@DisplayName("Should not schedule eviction when TTL is null")
+		void shouldNotScheduleEvictionWhenTtlIsNull() {
+			InMemoryAgentSessionManager noEviction = new InMemoryAgentSessionManager(
+					chatClientBuilder, 500, null, null, null, null);
+			// No exception, no scheduler — just verify it constructs cleanly
+			noEviction.close();
+		}
+
+		@Test
+		@DisplayName("Should not schedule eviction when TTL is zero")
+		void shouldNotScheduleEvictionWhenTtlIsZero() {
+			InMemoryAgentSessionManager noEviction = new InMemoryAgentSessionManager(
+					chatClientBuilder, 500, null, null, Duration.ZERO, null);
+			noEviction.close();
+		}
+
+		@Test
+		@DisplayName("Should clean up lastActivity on destroy")
+		void shouldCleanUpLastActivityOnDestroy() {
+			wireBuilderChain();
+			InMemoryAgentSessionManager evictingManager = new InMemoryAgentSessionManager(
+					chatClientBuilder, 500, null, null, Duration.ofMinutes(30), Duration.ofHours(1));
+			try {
+				evictingManager.getOrCreate("s1");
+				evictingManager.destroy("s1");
+
+				// Session is gone — re-running eviction should not fail
+				evictingManager.evictExpiredSessions();
+				assertThat(evictingManager.activeSessions()).isEmpty();
+			}
+			finally {
+				evictingManager.close();
+			}
+		}
+
+		@Test
+		@DisplayName("Should refresh activity timestamp on get")
+		void shouldRefreshActivityOnGet() throws Exception {
+			wireBuilderChain();
+			InMemoryAgentSessionManager evictingManager = new InMemoryAgentSessionManager(
+					chatClientBuilder, 500, null, null, Duration.ofMillis(80), Duration.ofHours(1));
+			try {
+				evictingManager.getOrCreate("refreshed");
+
+				// Wait 50ms then touch the session via get() to refresh activity
+				Thread.sleep(50);
+				evictingManager.get("refreshed");
+
+				// Wait another 50ms — original creation was 100ms ago, but last
+				// activity was only 50ms ago, so still within 80ms TTL
+				Thread.sleep(50);
+				evictingManager.evictExpiredSessions();
+
+				assertThat(evictingManager.activeSessions()).containsExactly("refreshed");
+			}
+			finally {
+				evictingManager.close();
+			}
 		}
 
 	}

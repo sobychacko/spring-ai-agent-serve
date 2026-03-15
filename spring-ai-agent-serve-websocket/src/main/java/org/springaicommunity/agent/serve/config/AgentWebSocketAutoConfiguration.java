@@ -40,11 +40,15 @@ import org.springframework.web.socket.config.annotation.WebSocketMessageBrokerCo
  * condition prevents this server-side configuration from activating in CLI or standalone
  * applications that may have WebSocket client libraries on the classpath.
  *
+ * <p>
+ * Each application uses a single transport. This auto-configuration registers
+ * {@link WebSocketEventSender} as the {@link AgentEventSender} for the application.
+ *
  */
 @AutoConfiguration(after = AgentServeAutoConfiguration.class)
 @ConditionalOnWebApplication
 @ConditionalOnClass({ SimpMessagingTemplate.class, WebSocketMessageBrokerConfigurer.class })
-@EnableConfigurationProperties(AgentServeProperties.class)
+@EnableConfigurationProperties(AgentWebSocketProperties.class)
 @EnableWebSocketMessageBroker
 public class AgentWebSocketAutoConfiguration {
 
@@ -56,7 +60,7 @@ public class AgentWebSocketAutoConfiguration {
 
 	@Bean
 	@ConditionalOnMissingBean
-	AgentWebSocketConfig agentWebSocketConfig(AgentServeProperties properties) {
+	AgentWebSocketConfig agentWebSocketConfig(AgentWebSocketProperties properties) {
 		return new AgentWebSocketConfig(properties);
 	}
 

@@ -15,10 +15,15 @@
  */
 package org.springaicommunity.agent.serve.config;
 
+import java.time.Duration;
+
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Configuration properties for the agent serve.
+ * Configuration properties for the agent serve core.
+ *
+ * <p>
+ * Transport-specific properties (WebSocket, SSE) are owned by their respective modules.
  *
  */
 @ConfigurationProperties(prefix = "spring.ai.agent.serve")
@@ -35,9 +40,9 @@ public class AgentServeProperties {
 	private int maxMessages = 500;
 
 	/**
-	 * WebSocket configuration.
+	 * Session lifecycle configuration.
 	 */
-	private Websocket websocket = new Websocket();
+	private Session session = new Session();
 
 	/**
 	 * Question bridge configuration.
@@ -60,12 +65,12 @@ public class AgentServeProperties {
 		this.maxMessages = maxMessages;
 	}
 
-	public Websocket getWebsocket() {
-		return this.websocket;
+	public Session getSession() {
+		return this.session;
 	}
 
-	public void setWebsocket(Websocket websocket) {
-		this.websocket = websocket;
+	public void setSession(Session session) {
+		this.session = session;
 	}
 
 	public Question getQuestion() {
@@ -76,45 +81,33 @@ public class AgentServeProperties {
 		this.question = question;
 	}
 
-	public static class Websocket {
+	public static class Session {
 
 		/**
-		 * Whether WebSocket transport is enabled.
+		 * Idle session time-to-live. Sessions with no activity for this duration will be
+		 * evicted. Set to zero to disable eviction.
 		 */
-		private boolean enabled = true;
+		private Duration ttl = Duration.ofMinutes(30);
 
 		/**
-		 * The WebSocket endpoint path.
+		 * How often the eviction task runs to check for idle sessions.
 		 */
-		private String endpoint = "/ws";
+		private Duration evictionInterval = Duration.ofSeconds(60);
 
-		/**
-		 * Allowed origin patterns for WebSocket connections (CORS).
-		 */
-		private String[] allowedOrigins = new String[] { "http://localhost:*" };
-
-		public boolean isEnabled() {
-			return this.enabled;
+		public Duration getTtl() {
+			return this.ttl;
 		}
 
-		public void setEnabled(boolean enabled) {
-			this.enabled = enabled;
+		public void setTtl(Duration ttl) {
+			this.ttl = ttl;
 		}
 
-		public String getEndpoint() {
-			return this.endpoint;
+		public Duration getEvictionInterval() {
+			return this.evictionInterval;
 		}
 
-		public void setEndpoint(String endpoint) {
-			this.endpoint = endpoint;
-		}
-
-		public String[] getAllowedOrigins() {
-			return this.allowedOrigins;
-		}
-
-		public void setAllowedOrigins(String[] allowedOrigins) {
-			this.allowedOrigins = allowedOrigins;
+		public void setEvictionInterval(Duration evictionInterval) {
+			this.evictionInterval = evictionInterval;
 		}
 
 	}

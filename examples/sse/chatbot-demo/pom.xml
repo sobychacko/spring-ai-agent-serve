@@ -12,10 +12,10 @@
 	</parent>
 
 	<groupId>org.springaicommunity</groupId>
-	<artifactId>serve-chatbot-demo</artifactId>
+	<artifactId>serve-sse-chatbot-demo</artifactId>
 	<version>0.1.0-SNAPSHOT</version>
-	<name>serve-chatbot-demo</name>
-	<description>Spring AI Agent Serve - Chatbot Demo</description>
+	<name>serve-sse-chatbot-demo</name>
+	<description>Spring AI Agent Serve - Chatbot Demo (SSE Transport)</description>
 
 	<properties>
 		<java.version>17</java.version>
@@ -27,7 +27,7 @@
 
 		<dependency>
 			<groupId>org.springaicommunity</groupId>
-			<artifactId>spring-ai-agent-serve-starter</artifactId>
+			<artifactId>spring-ai-agent-serve-starter-sse</artifactId>
 			<version>0.1.0-SNAPSHOT</version>
 			<type>pom</type>
 		</dependency>

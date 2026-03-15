@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spring AI Agent Serve - Chat (SSE)</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #f5f5f5;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        header {
+            background: #1a1a2e;
+            color: white;
+            padding: 16px 24px;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        #chat-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .message {
+            max-width: 75%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .message.user { align-self: flex-end; background: #1a1a2e; color: white; }
+        .message.agent { align-self: flex-start; background: white; border: 1px solid #e0e0e0; }
+        .message.error { align-self: flex-start; background: #fee; border: 1px solid #fcc; color: #c00; }
+        .message.system { align-self: center; background: #e8f5e9; color: #2e7d32; font-size: 14px; }
+        .tool-status {
+            align-self: flex-start;
+            padding: 8px 14px;
+            border-radius: 8px;
+            font-size: 13px;
+            color: #555;
+            background: #f0f4ff;
+            border: 1px solid #d0d8f0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .tool-status .spinner {
+            width: 14px; height: 14px;
+            border: 2px solid #ccc; border-top-color: #555;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        .tool-status.completed {
+            background: #e8f5e9; border-color: #c8e6c9; color: #2e7d32;
+            font-size: 12px; padding: 6px 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .question-card {
+            align-self: flex-start;
+            background: white;
+            border: 1px solid #d0d8f0;
+            border-radius: 12px;
+            padding: 16px;
+            max-width: 80%;
+        }
+        .question-card h4 { margin-bottom: 12px; color: #1a1a2e; }
+        .question-card .options { display: flex; flex-direction: column; gap: 8px; }
+        .question-card .option-btn {
+            padding: 10px 16px; background: #f0f4ff; border: 1px solid #d0d8f0;
+            border-radius: 8px; cursor: pointer; text-align: left; font-size: 14px;
+        }
+        .question-card .option-btn:hover { background: #dde4f8; }
+        .question-card .option-btn .label { font-weight: 600; }
+        .question-card .option-btn .desc { color: #666; font-size: 13px; }
+        .question-card .skip-btn {
+            padding: 8px 14px; background: none; border: 1px solid #ccc;
+            border-radius: 8px; cursor: pointer; font-size: 13px; color: #888; margin-top: 4px;
+        }
+        .question-card .skip-btn:hover { background: #f5f5f5; color: #555; }
+        #input-area {
+            padding: 16px 24px; background: white; border-top: 1px solid #e0e0e0;
+            display: flex; gap: 12px;
+        }
+        #message-input {
+            flex: 1; padding: 12px 16px; border: 1px solid #ddd;
+            border-radius: 8px; font-size: 16px; outline: none;
+        }
+        #message-input:focus { border-color: #1a1a2e; }
+        #send-btn {
+            padding: 12px 24px; background: #1a1a2e; color: white;
+            border: none; border-radius: 8px; font-size: 16px; cursor: pointer;
+        }
+        #send-btn:hover { background: #16213e; }
+        #send-btn:disabled { background: #ccc; cursor: not-allowed; }
+        #status {
+            padding: 4px 24px; font-size: 12px; color: #888;
+            background: white; border-top: 1px solid #f0f0f0;
+        }
+    </style>
+</head>
+<body>
+    <header>Spring AI Agent Serve (SSE)</header>
+    <div id="chat-container"></div>
+    <div id="status">Connecting...</div>
+    <div id="input-area">
+        <input type="text" id="message-input" placeholder="Type a message..." disabled />
+        <button id="send-btn" disabled>Send</button>
+    </div>
+
+    <script>
+        const chatContainer = document.getElementById('chat-container');
+        const messageInput = document.getElementById('message-input');
+        const sendBtn = document.getElementById('send-btn');
+        const statusEl = document.getElementById('status');
+        let sessionId = null;
+        let currentAgentBubble = null;
+        let activeToolStatus = null;
+
+        function addMessage(text, type) {
+            const div = document.createElement('div');
+            div.className = 'message ' + type;
+            div.textContent = text;
+            chatContainer.appendChild(div);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+            return div;
+        }
+
+        function ensureAgentBubble() {
+            if (!currentAgentBubble) {
+                currentAgentBubble = document.createElement('div');
+                currentAgentBubble.className = 'message agent';
+                chatContainer.appendChild(currentAgentBubble);
+            }
+            return currentAgentBubble;
+        }
+
+        function showToolStatus(toolName) {
+            finalizeToolStatus();
+            activeToolStatus = document.createElement('div');
+            activeToolStatus.className = 'tool-status';
+            activeToolStatus.innerHTML = '<div class="spinner"></div><span>Calling ' +
+                (toolName || 'tool') + '...</span>';
+            currentAgentBubble = null;
+            chatContainer.appendChild(activeToolStatus);
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function finalizeToolStatus(toolName) {
+            if (activeToolStatus) {
+                var name = toolName || 'tool';
+                activeToolStatus.classList.add('completed');
+                activeToolStatus.innerHTML = '<span>Used ' + name + '</span>';
+                activeToolStatus = null;
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML.replace(/"/g, '&quot;');
+        }
+
+        function showQuestionCard(questionId, questions) {
+            const totalQuestions = questions.length;
+            const collectedAnswers = {};
+            const allCards = [];
+            let answered = false;
+
+            function disableAllCards() {
+                allCards.forEach(function(c) {
+                    c.querySelectorAll('.option-btn, .skip-btn').forEach(function(b) { b.disabled = true; });
+                });
+            }
+
+            function trySend() {
+                if (Object.keys(collectedAnswers).length === totalQuestions) {
+                    answered = true;
+                    disableAllCards();
+                    sendAnswer(questionId, collectedAnswers);
+                }
+            }
+
+            questions.forEach(function(q) {
+                const card = document.createElement('div');
+                card.className = 'question-card';
+
+                let html = '<h4>' + escapeHtml(q.question) + '</h4>';
+                html += '<div class="options">';
+                (q.options || []).forEach(function(opt) {
+                    html += '<button class="option-btn" data-label="' + escapeHtml(opt.label) + '">' +
+                        '<div class="label">' + escapeHtml(opt.label) + '</div>' +
+                        (opt.description ? '<div class="desc">' + escapeHtml(opt.description) + '</div>' : '') +
+                        '</button>';
+                });
+                html += '<button class="skip-btn">Skip</button>';
+                html += '</div>';
+                card.innerHTML = html;
+                allCards.push(card);
+
+                card.querySelectorAll('.option-btn').forEach(function(btn) {
+                    btn.addEventListener('click', function() {
+                        if (answered) return;
+                        collectedAnswers[q.question] = btn.dataset.label;
+                        card.querySelectorAll('.option-btn, .skip-btn').forEach(function(b) { b.disabled = true; });
+                        btn.style.background = '#c8e6c9';
+                        trySend();
+                    });
+                });
+
+                card.querySelector('.skip-btn').addEventListener('click', function() {
+                    if (answered) return;
+                    collectedAnswers[q.question] = 'Skipped';
+                    card.querySelectorAll('.option-btn, .skip-btn').forEach(function(b) { b.disabled = true; });
+                    card.querySelector('.skip-btn').style.background = '#fff3e0';
+                    trySend();
+                });
+
+                chatContainer.appendChild(card);
+            });
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        function sendAnswer(questionId, answers) {
+            fetch('/api/agent/sessions/' + sessionId + '/answers', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sessionId: sessionId,
+                    questionId: questionId,
+                    answers: answers
+                })
+            });
+        }
+
+        function enableInput() {
+            sendBtn.disabled = false;
+            messageInput.disabled = false;
+            messageInput.focus();
+        }
+
+        function handleEvent(event) {
+            const data = JSON.parse(event.data);
+            console.log('Agent event:', data.type, data);
+
+            switch (data.type) {
+                case 'SESSION_CREATED':
+                    sessionId = data.metadata.sessionId;
+                    statusEl.textContent = 'Connected (session: ' + sessionId.substring(0, 8) + '...)';
+                    enableInput();
+                    addMessage('Connected to agent serve.', 'system');
+                    break;
+
+                case 'RESPONSE_CHUNK':
+                    finalizeToolStatus();
+                    const bubble = ensureAgentBubble();
+                    bubble.textContent += (data.content || '');
+                    chatContainer.scrollTop = chatContainer.scrollHeight;
+                    break;
+
+                case 'TOOL_CALL_STARTED':
+                    showToolStatus(data.metadata && data.metadata.toolName);
+                    break;
+
+                case 'TOOL_CALL_COMPLETED':
+                    finalizeToolStatus((data.metadata && data.metadata.toolName) || 'tool');
+                    break;
+
+                case 'QUESTION_REQUIRED':
+                    finalizeToolStatus();
+                    const qId = data.metadata && data.metadata.questionId;
+                    const questions = data.metadata && data.metadata.questions;
+                    if (qId && questions) {
+                        showQuestionCard(qId, questions);
+                    }
+                    break;
+
+                case 'FINAL_RESPONSE':
+                    finalizeToolStatus();
+                    currentAgentBubble = null;
+                    enableInput();
+                    break;
+
+                case 'ERROR':
+                    finalizeToolStatus();
+                    currentAgentBubble = null;
+                    addMessage(data.content || 'An error occurred', 'error');
+                    enableInput();
+                    break;
+            }
+        }
+
+        function connect() {
+            // Open SSE stream with a new session
+            const eventSource = new EventSource('/api/agent/sessions/new/events');
+
+            // Listen for all event types using named events
+            ['SESSION_CREATED', 'RESPONSE_CHUNK', 'TOOL_CALL_STARTED', 'TOOL_CALL_COMPLETED',
+             'QUESTION_REQUIRED', 'FINAL_RESPONSE', 'ERROR'].forEach(function(type) {
+                eventSource.addEventListener(type, handleEvent);
+            });
+
+            eventSource.onerror = function() {
+                statusEl.textContent = 'Disconnected. Refresh to reconnect.';
+                addMessage('Connection lost.', 'error');
+            };
+        }
+
+        function sendMessage() {
+            const text = messageInput.value.trim();
+            if (!text || !sessionId) return;
+
+            addMessage(text, 'user');
+            currentAgentBubble = null;
+            messageInput.value = '';
+            sendBtn.disabled = true;
+            messageInput.disabled = true;
+
+            fetch('/api/agent/sessions/' + sessionId + '/messages', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ message: text })
+            });
+        }
+
+        sendBtn.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') sendMessage();
+        });
+
+        connect();
+    </script>
+</body>
+</html>

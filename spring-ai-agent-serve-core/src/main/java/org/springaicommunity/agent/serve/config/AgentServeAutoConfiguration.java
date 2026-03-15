@@ -65,7 +65,8 @@ public class AgentServeAutoConfiguration {
 			ObjectProvider<ServeQuestionHandlerFactory> questionHandlerFactory,
 			ObjectProvider<List<ToolCallback>> toolCallbacks) {
 		return new InMemoryAgentSessionManager(chatClientBuilder, properties.getMaxMessages(),
-				questionHandlerFactory.getIfAvailable(), toolCallbacks.getIfAvailable());
+				questionHandlerFactory.getIfAvailable(), toolCallbacks.getIfAvailable(),
+				properties.getSession().getTtl(), properties.getSession().getEvictionInterval());
 	}
 
 }

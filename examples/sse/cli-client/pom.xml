@@ -12,10 +12,10 @@
 	</parent>
 
 	<groupId>org.springaicommunity</groupId>
-	<artifactId>serve-cli-client</artifactId>
+	<artifactId>serve-sse-cli-client</artifactId>
 	<version>0.1.0-SNAPSHOT</version>
-	<name>serve-cli-client</name>
-	<description>Spring AI Agent Serve - CLI WebSocket Client</description>
+	<name>serve-sse-cli-client</name>
+	<description>Spring AI Agent Serve - CLI Client (SSE Transport)</description>
 
 	<properties>
 		<java.version>17</java.version>
@@ -27,13 +27,13 @@
 
 		<dependency>
 			<groupId>org.springaicommunity</groupId>
-			<artifactId>spring-ai-agent-serve</artifactId>
+			<artifactId>spring-ai-agent-serve-core</artifactId>
 			<version>0.1.0-SNAPSHOT</version>
 		</dependency>
 
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-websocket</artifactId>
+			<artifactId>spring-boot-starter-web</artifactId>
 		</dependency>
 
 		<dependency>

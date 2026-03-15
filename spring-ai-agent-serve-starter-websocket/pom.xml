@@ -10,11 +10,11 @@
 		<version>0.1.0-SNAPSHOT</version>
 	</parent>
 
-	<artifactId>spring-ai-agent-serve-starter</artifactId>
+	<artifactId>spring-ai-agent-serve-starter-websocket</artifactId>
 	<version>0.1.0-SNAPSHOT</version>
 	<packaging>pom</packaging>
-	<name>spring-ai-agent-serve-starter</name>
-	<description>Spring Boot Starter for Spring AI Agent Serve</description>
+	<name>spring-ai-agent-serve-starter-websocket</name>
+	<description>Spring Boot Starter for Spring AI Agent Serve with WebSocket transport</description>
 
 	<url>https://github.com/spring-ai-community/spring-ai-agent-serve</url>
 
