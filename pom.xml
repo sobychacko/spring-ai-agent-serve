@@ -55,6 +55,7 @@
         <spring-boot.version>4.0.0</spring-boot.version>
         <spring-framework.version>7.0.1</spring-framework.version>
         <spring-kafka.version>4.0.0</spring-kafka.version>
+        <spring-amqp.version>4.0.0</spring-amqp.version>
 
         <!-- plugin versions -->
         <maven-compiler-plugin.version>3.11.0</maven-compiler-plugin.version>
@@ -75,6 +76,8 @@
         <module>spring-ai-agent-serve-starter-sse</module>
         <module>spring-ai-agent-serve-kafka</module>
         <module>spring-ai-agent-serve-starter-kafka</module>
+        <module>spring-ai-agent-serve-amqp</module>
+        <module>spring-ai-agent-serve-starter-amqp</module>
         <module>examples</module>
     </modules>
 
