@@ -20,9 +20,12 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 
+import io.micrometer.core.instrument.Timer;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springaicommunity.agent.serve.feedback.ServeQuestionHandler;
+import org.springaicommunity.agent.serve.metrics.AgentServeMetrics;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -60,22 +63,31 @@ public class AgentSession {
 
 	private final ToolCallEventBridge toolCallEventBridge;
 
+	private final AgentServeMetrics metrics;
+
 	public AgentSession(String sessionId, ChatClient chatClient, ChatMemory chatMemory) {
-		this(sessionId, chatClient, chatMemory, null, null);
+		this(sessionId, chatClient, chatMemory, null, null, null);
 	}
 
 	public AgentSession(String sessionId, ChatClient chatClient, ChatMemory chatMemory,
 			ServeQuestionHandler questionHandler) {
-		this(sessionId, chatClient, chatMemory, questionHandler, null);
+		this(sessionId, chatClient, chatMemory, questionHandler, null, null);
 	}
 
 	public AgentSession(String sessionId, ChatClient chatClient, ChatMemory chatMemory,
 			ServeQuestionHandler questionHandler, ToolCallEventBridge toolCallEventBridge) {
+		this(sessionId, chatClient, chatMemory, questionHandler, toolCallEventBridge, null);
+	}
+
+	public AgentSession(String sessionId, ChatClient chatClient, ChatMemory chatMemory,
+			ServeQuestionHandler questionHandler, ToolCallEventBridge toolCallEventBridge,
+			AgentServeMetrics metrics) {
 		this.sessionId = sessionId;
 		this.chatClient = chatClient;
 		this.chatMemory = chatMemory;
 		this.questionHandler = questionHandler;
 		this.toolCallEventBridge = toolCallEventBridge;
+		this.metrics = metrics;
 		this.executor = Executors.newSingleThreadExecutor(r -> {
 			Thread t = new Thread(r, "agent-session-" + sessionId);
 			t.setDaemon(true);
@@ -106,6 +118,10 @@ public class AgentSession {
 	 */
 	public void submitStream(AgentRequest request, Consumer<AgentEvent> listener) {
 		this.executor.submit(() -> {
+			if (this.metrics != null) {
+				this.metrics.requestStarted();
+			}
+			Timer.Sample timerSample = (this.metrics != null) ? this.metrics.startRequestTimer() : null;
 			try {
 				if (this.questionHandler != null) {
 					this.questionHandler.setEventCallback(listener);
@@ -139,6 +155,11 @@ public class AgentSession {
 			catch (Exception ex) {
 				logger.error("Session [{}]: error processing message", this.sessionId, ex);
 				listener.accept(AgentEvent.error(this.sessionId, ex.getMessage()));
+			}
+			finally {
+				if (timerSample != null) {
+					this.metrics.requestCompleted(timerSample);
+				}
 			}
 		});
 	}

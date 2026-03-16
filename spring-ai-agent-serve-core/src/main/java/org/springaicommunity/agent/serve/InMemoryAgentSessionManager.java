@@ -32,6 +32,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springaicommunity.agent.serve.feedback.ServeQuestionHandler;
 import org.springaicommunity.agent.serve.feedback.ServeQuestionHandlerFactory;
+import org.springaicommunity.agent.serve.metrics.AgentServeMetrics;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
@@ -81,33 +82,43 @@ public class InMemoryAgentSessionManager implements AgentSessionManager, AutoClo
 
 	private final ScheduledExecutorService evictionScheduler;
 
+	private final AgentServeMetrics metrics;
+
 	public InMemoryAgentSessionManager(ChatClient.Builder chatClientBuilder) {
-		this(chatClientBuilder, 500, null, null, null, null);
+		this(chatClientBuilder, 500, null, null, null, null, null);
 	}
 
 	public InMemoryAgentSessionManager(ChatClient.Builder chatClientBuilder, int maxMessages) {
-		this(chatClientBuilder, maxMessages, null, null, null, null);
+		this(chatClientBuilder, maxMessages, null, null, null, null, null);
 	}
 
 	public InMemoryAgentSessionManager(ChatClient.Builder chatClientBuilder, int maxMessages,
 			ServeQuestionHandlerFactory questionHandlerFactory) {
-		this(chatClientBuilder, maxMessages, questionHandlerFactory, null, null, null);
+		this(chatClientBuilder, maxMessages, questionHandlerFactory, null, null, null, null);
 	}
 
 	public InMemoryAgentSessionManager(ChatClient.Builder chatClientBuilder, int maxMessages,
 			ServeQuestionHandlerFactory questionHandlerFactory, List<ToolCallback> toolCallbacks) {
-		this(chatClientBuilder, maxMessages, questionHandlerFactory, toolCallbacks, null, null);
+		this(chatClientBuilder, maxMessages, questionHandlerFactory, toolCallbacks, null, null, null);
 	}
 
 	public InMemoryAgentSessionManager(ChatClient.Builder chatClientBuilder, int maxMessages,
 			ServeQuestionHandlerFactory questionHandlerFactory, List<ToolCallback> toolCallbacks,
 			Duration sessionTtl, Duration evictionInterval) {
+		this(chatClientBuilder, maxMessages, questionHandlerFactory, toolCallbacks, sessionTtl,
+				evictionInterval, null);
+	}
+
+	public InMemoryAgentSessionManager(ChatClient.Builder chatClientBuilder, int maxMessages,
+			ServeQuestionHandlerFactory questionHandlerFactory, List<ToolCallback> toolCallbacks,
+			Duration sessionTtl, Duration evictionInterval, AgentServeMetrics metrics) {
 		this.chatClientBuilder = chatClientBuilder;
 		this.maxMessages = maxMessages;
 		this.questionHandlerFactory = questionHandlerFactory;
 		this.toolCallbacks = (toolCallbacks != null) ? Collections.unmodifiableList(toolCallbacks)
 				: Collections.emptyList();
 		this.sessionTtl = sessionTtl;
+		this.metrics = metrics;
 
 		if (sessionTtl != null && !sessionTtl.isZero() && !sessionTtl.isNegative()) {
 			Duration interval = (evictionInterval != null) ? evictionInterval : Duration.ofSeconds(60);
@@ -147,6 +158,9 @@ public class InMemoryAgentSessionManager implements AgentSessionManager, AutoClo
 		if (session != null) {
 			logger.info("Destroying session [{}]", sessionId);
 			session.close();
+			if (this.metrics != null) {
+				this.metrics.sessionDestroyed();
+			}
 		}
 	}
 
@@ -175,6 +189,9 @@ public class InMemoryAgentSessionManager implements AgentSessionManager, AutoClo
 				String sessionId = entry.getKey();
 				logger.info("Evicting idle session [{}], last activity: {}", sessionId, entry.getValue());
 				destroy(sessionId);
+				if (this.metrics != null) {
+					this.metrics.sessionEvicted();
+				}
 			}
 		}
 	}
@@ -197,8 +214,9 @@ public class InMemoryAgentSessionManager implements AgentSessionManager, AutoClo
 		if (!this.toolCallbacks.isEmpty()) {
 			toolCallEventBridge = new ToolCallEventBridge(sessionId);
 			ToolCallEventBridge bridge = toolCallEventBridge;
+			AgentServeMetrics m = this.metrics;
 			ToolCallback[] wrapped = this.toolCallbacks.stream()
-				.map(tc -> (ToolCallback) new ObservableToolCallback(tc, bridge))
+				.map(tc -> (ToolCallback) new ObservableToolCallback(tc, bridge, m))
 				.toArray(ToolCallback[]::new);
 			builder.defaultToolCallbacks(wrapped);
 			logger.debug("Session [{}]: {} tools wrapped with event observation", sessionId,
@@ -210,14 +228,19 @@ public class InMemoryAgentSessionManager implements AgentSessionManager, AutoClo
 		// The factory handles the AskUserQuestionTool reference internally so that
 		// this class has no compile-time dependency on the optional agent-utils module.
 		if (this.questionHandlerFactory != null) {
-			questionHandler = this.questionHandlerFactory.create(sessionId);
+			questionHandler = this.questionHandlerFactory.create(sessionId, this.metrics);
 			this.questionHandlerFactory.configureBuilder(builder, questionHandler);
 			logger.debug("Session [{}]: AskUserQuestionTool wired with serve handler", sessionId);
 		}
 
 		ChatClient client = builder.build();
 
-		return new AgentSession(sessionId, client, memory, questionHandler, toolCallEventBridge);
+		if (this.metrics != null) {
+			this.metrics.sessionCreated();
+		}
+
+		return new AgentSession(sessionId, client, memory, questionHandler, toolCallEventBridge,
+				this.metrics);
 	}
 
 }

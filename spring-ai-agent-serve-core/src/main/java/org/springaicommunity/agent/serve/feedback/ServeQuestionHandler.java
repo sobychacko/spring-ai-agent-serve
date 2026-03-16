@@ -27,6 +27,7 @@ import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springaicommunity.agent.serve.AgentEvent;
+import org.springaicommunity.agent.serve.metrics.AgentServeMetrics;
 import org.springaicommunity.agent.tools.AskUserQuestionTool;
 
 /**
@@ -59,13 +60,20 @@ public class ServeQuestionHandler implements AskUserQuestionTool.QuestionHandler
 
 	private final long timeoutMinutes;
 
+	private final AgentServeMetrics metrics;
+
 	private final ConcurrentHashMap<String, CompletableFuture<Map<String, String>>> pendingQuestions = new ConcurrentHashMap<>();
 
 	private volatile Consumer<AgentEvent> eventCallback;
 
 	public ServeQuestionHandler(String sessionId, long timeoutMinutes) {
+		this(sessionId, timeoutMinutes, null);
+	}
+
+	public ServeQuestionHandler(String sessionId, long timeoutMinutes, AgentServeMetrics metrics) {
 		this.sessionId = sessionId;
 		this.timeoutMinutes = timeoutMinutes;
+		this.metrics = metrics;
 	}
 
 	/**
@@ -109,6 +117,9 @@ public class ServeQuestionHandler implements AskUserQuestionTool.QuestionHandler
 		catch (TimeoutException ex) {
 			logger.warn("Session [{}]: question [{}] timed out after {} minutes",
 					this.sessionId, questionId, this.timeoutMinutes);
+			if (this.metrics != null) {
+				this.metrics.questionTimedOut();
+			}
 			throw new RuntimeException("Question timed out after " + this.timeoutMinutes + " minutes");
 		}
 		catch (InterruptedException ex) {

@@ -20,6 +20,7 @@ import java.util.List;
 import org.springaicommunity.agent.serve.AgentSessionManager;
 import org.springaicommunity.agent.serve.InMemoryAgentSessionManager;
 import org.springaicommunity.agent.serve.feedback.ServeQuestionHandlerFactory;
+import org.springaicommunity.agent.serve.metrics.AgentServeMetrics;
 
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.tool.ToolCallback;
@@ -63,10 +64,12 @@ public class AgentServeAutoConfiguration {
 	AgentSessionManager agentSessionManager(ChatClient.Builder chatClientBuilder,
 			AgentServeProperties properties,
 			ObjectProvider<ServeQuestionHandlerFactory> questionHandlerFactory,
-			ObjectProvider<List<ToolCallback>> toolCallbacks) {
+			ObjectProvider<List<ToolCallback>> toolCallbacks,
+			ObjectProvider<AgentServeMetrics> metrics) {
 		return new InMemoryAgentSessionManager(chatClientBuilder, properties.getMaxMessages(),
 				questionHandlerFactory.getIfAvailable(), toolCallbacks.getIfAvailable(),
-				properties.getSession().getTtl(), properties.getSession().getEvictionInterval());
+				properties.getSession().getTtl(), properties.getSession().getEvictionInterval(),
+				metrics.getIfAvailable());
 	}
 
 }

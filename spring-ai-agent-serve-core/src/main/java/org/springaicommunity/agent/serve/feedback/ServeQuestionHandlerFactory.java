@@ -15,6 +15,7 @@
  */
 package org.springaicommunity.agent.serve.feedback;
 
+import org.springaicommunity.agent.serve.metrics.AgentServeMetrics;
 import org.springaicommunity.agent.tools.AskUserQuestionTool;
 
 import org.springframework.ai.chat.client.ChatClient;
@@ -49,6 +50,16 @@ public class ServeQuestionHandlerFactory {
 	 */
 	public ServeQuestionHandler create(String sessionId) {
 		return new ServeQuestionHandler(sessionId, this.timeoutMinutes);
+	}
+
+	/**
+	 * Creates a new question handler bound to the given session with metrics support.
+	 * @param sessionId the session identifier
+	 * @param metrics the metrics instance, may be {@code null}
+	 * @return a new handler
+	 */
+	public ServeQuestionHandler create(String sessionId, AgentServeMetrics metrics) {
+		return new ServeQuestionHandler(sessionId, this.timeoutMinutes, metrics);
 	}
 
 	/**

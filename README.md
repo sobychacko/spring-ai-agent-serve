@@ -64,6 +64,7 @@ This project borrows the same naming convention. The "serve" in the name signals
 - **Streams responses in real time** — text chunks, tool call events, and question prompts are pushed as they happen
 - **Bridges AskUserQuestionTool** — questions are pushed to the client; answers flow back and the agent resumes (requires [agent-utils](https://github.com/spring-ai-community/spring-ai-agent-utils) on classpath)
 - **Evicts idle sessions** — configurable TTL-based cleanup prevents unbounded memory growth
+- **Reports metrics and health** — Micrometer counters, gauges, and timers for sessions, requests, tool calls, and question timeouts; Actuator health indicator for operational monitoring
 - **Auto-configures** — add a starter dependency and provide a `ChatClient.Builder` bean
 
 ## Where This Fits
@@ -526,6 +527,60 @@ The AMQP transport reuses Spring Boot's standard `spring.rabbitmq.*` properties 
 
 Each transport module owns its own `@ConfigurationProperties` class (`AgentSseProperties`, `AgentWebSocketProperties`, `AgentKafkaProperties`, `AgentAmqpProperties`), so there is no configuration conflict between modules.
 
+## Observability
+
+When Micrometer is on the classpath, the serve layer automatically registers metrics for monitoring session activity, request processing, tool execution, and question handling.
+
+### Metrics
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `agent.serve.sessions.active` | Gauge | Number of currently active sessions |
+| `agent.serve.sessions.created` | Counter | Total sessions created since startup |
+| `agent.serve.sessions.evicted` | Counter | Sessions evicted due to idle TTL |
+| `agent.serve.requests` | Counter | Total streaming requests processed |
+| `agent.serve.request.duration` | Timer | Time from request submission to stream completion |
+| `agent.serve.tool.calls` | Counter | Total tool executions across all sessions |
+| `agent.serve.tool.duration` | Timer | Individual tool execution time |
+| `agent.serve.questions.timed.out` | Counter | Questions that expired before the user answered |
+
+These metrics are available through any Micrometer-supported monitoring system — Prometheus, Grafana, Datadog, CloudWatch, and others. No additional configuration is needed beyond having Micrometer on the classpath.
+
+### Health Indicator
+
+When Spring Boot Actuator is on the classpath, a health indicator reports the serve layer's status:
+
+```
+GET /actuator/health
+```
+
+```json
+{
+  "status": "UP",
+  "components": {
+    "agentServe": {
+      "status": "UP",
+      "details": {
+        "activeSessions": 12
+      }
+    }
+  }
+}
+```
+
+### Opting In
+
+Observability is automatic when the dependencies are present. The SSE starter, WebSocket starter, and any Spring Boot web application typically include Actuator and Micrometer already. For Kafka or AMQP agent processors (non-web), add the Actuator starter:
+
+```xml
+<dependency>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-actuator</artifactId>
+</dependency>
+```
+
+Metrics and the health indicator are registered via `@ConditionalOnClass` — if Micrometer or Actuator is not on the classpath, no metrics code runs and there is no impact on the application.
+
 ## Customization
 
 Every auto-configured bean uses `@ConditionalOnMissingBean`. Define your own and the default backs off:
@@ -565,7 +620,7 @@ session.submitStream(request, event -> myTransport.send(sessionId, event));
 
 ```
 spring-ai-agent-serve/
-+-- spring-ai-agent-serve-core/              # Sessions, events, tool observability, question bridge
++-- spring-ai-agent-serve-core/              # Sessions, events, tool observability, question bridge, metrics
 +-- spring-ai-agent-serve-sse/               # SSE + REST transport
 +-- spring-ai-agent-serve-websocket/         # WebSocket (STOMP) transport
 +-- spring-ai-agent-serve-kafka/             # Kafka consumer/producer transport
@@ -593,12 +648,12 @@ Each transport module is self-contained with its own auto-configuration and prop
 
 ## Current Status
 
-Early release (0.1.0-SNAPSHOT). Four transports available: SSE+REST (recommended for client-facing), WebSocket (STOMP), Kafka, and AMQP (RabbitMQ).
+Early release (0.1.0-SNAPSHOT). Four transports available: SSE+REST (recommended for client-facing), WebSocket (STOMP), Kafka, and AMQP (RabbitMQ). Observability via Micrometer metrics and Actuator health indicator.
 
 **Planned:**
 - Pluggable session storage (Redis, JDBC)
 - Request cancellation
-- Observability (Micrometer metrics, Actuator health)
+- Security integration points
 
 ## Requirements
 

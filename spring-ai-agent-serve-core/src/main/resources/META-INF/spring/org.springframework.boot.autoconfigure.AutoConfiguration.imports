@@ -1,2 +1,3 @@
+org.springaicommunity.agent.serve.config.AgentServeObservabilityAutoConfiguration
 org.springaicommunity.agent.serve.config.AgentServeAutoConfiguration
 org.springaicommunity.agent.serve.config.AgentQuestionBridgeAutoConfiguration

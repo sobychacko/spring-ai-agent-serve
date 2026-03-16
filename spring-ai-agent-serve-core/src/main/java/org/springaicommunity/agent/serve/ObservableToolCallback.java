@@ -15,6 +15,10 @@
  */
 package org.springaicommunity.agent.serve;
 
+import io.micrometer.core.instrument.Timer;
+
+import org.springaicommunity.agent.serve.metrics.AgentServeMetrics;
+
 import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.definition.ToolDefinition;
@@ -44,9 +48,17 @@ public class ObservableToolCallback implements ToolCallback {
 
 	private final ToolCallEventBridge bridge;
 
+	private final AgentServeMetrics metrics;
+
 	public ObservableToolCallback(ToolCallback delegate, ToolCallEventBridge bridge) {
+		this(delegate, bridge, null);
+	}
+
+	public ObservableToolCallback(ToolCallback delegate, ToolCallEventBridge bridge,
+			AgentServeMetrics metrics) {
 		this.delegate = delegate;
 		this.bridge = bridge;
+		this.metrics = metrics;
 	}
 
 	@Override
@@ -63,11 +75,18 @@ public class ObservableToolCallback implements ToolCallback {
 	public String call(String toolInput) {
 		String toolName = getToolDefinition().name();
 		this.bridge.toolCallStarted(toolName);
+		if (this.metrics != null) {
+			this.metrics.toolCallStarted();
+		}
+		Timer.Sample timerSample = (this.metrics != null) ? this.metrics.startToolCallTimer() : null;
 		try {
 			return this.delegate.call(toolInput);
 		}
 		finally {
 			this.bridge.toolCallCompleted(toolName);
+			if (timerSample != null) {
+				this.metrics.toolCallCompleted(timerSample);
+			}
 		}
 	}
 
@@ -75,11 +94,18 @@ public class ObservableToolCallback implements ToolCallback {
 	public String call(String toolInput, ToolContext toolContext) {
 		String toolName = getToolDefinition().name();
 		this.bridge.toolCallStarted(toolName);
+		if (this.metrics != null) {
+			this.metrics.toolCallStarted();
+		}
+		Timer.Sample timerSample = (this.metrics != null) ? this.metrics.startToolCallTimer() : null;
 		try {
 			return this.delegate.call(toolInput, toolContext);
 		}
 		finally {
 			this.bridge.toolCallCompleted(toolName);
+			if (timerSample != null) {
+				this.metrics.toolCallCompleted(timerSample);
+			}
 		}
 	}
 
