@@ -54,6 +54,7 @@
         <spring-ai.version>2.0.0-M2</spring-ai.version>
         <spring-boot.version>4.0.0</spring-boot.version>
         <spring-framework.version>7.0.1</spring-framework.version>
+        <spring-kafka.version>4.0.0</spring-kafka.version>
 
         <!-- plugin versions -->
         <maven-compiler-plugin.version>3.11.0</maven-compiler-plugin.version>
@@ -72,6 +73,8 @@
         <module>spring-ai-agent-serve-sse</module>
         <module>spring-ai-agent-serve-starter-websocket</module>
         <module>spring-ai-agent-serve-starter-sse</module>
+        <module>spring-ai-agent-serve-kafka</module>
+        <module>spring-ai-agent-serve-starter-kafka</module>
         <module>examples</module>
     </modules>
 

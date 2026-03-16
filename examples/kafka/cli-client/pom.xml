@@ -12,15 +12,14 @@
 	</parent>
 
 	<groupId>org.springaicommunity</groupId>
-	<artifactId>serve-sse-cli-client</artifactId>
+	<artifactId>serve-kafka-cli-client</artifactId>
 	<version>0.1.0-SNAPSHOT</version>
-	<name>serve-sse-cli-client</name>
-	<description>Spring AI Agent Serve - CLI Client (SSE Transport)</description>
+	<name>serve-kafka-cli-client</name>
+	<description>Spring AI Agent Serve - CLI Client (Kafka Transport)</description>
 
 	<properties>
 		<java.version>17</java.version>
 		<maven.deploy.skip>true</maven.deploy.skip>
-		<spring-ai.version>2.0.0-SNAPSHOT</spring-ai.version>
 	</properties>
 
 	<dependencies>
@@ -33,12 +32,12 @@
 
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter</artifactId>
+			<artifactId>spring-boot-starter-kafka</artifactId>
 		</dependency>
 
 		<dependency>
-			<groupId>org.springframework</groupId>
-			<artifactId>spring-web</artifactId>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-jackson</artifactId>
 		</dependency>
 
 		<dependency>
@@ -47,18 +46,6 @@
 		</dependency>
 
 	</dependencies>
-
-	<dependencyManagement>
-		<dependencies>
-			<dependency>
-				<groupId>org.springframework.ai</groupId>
-				<artifactId>spring-ai-bom</artifactId>
-				<version>${spring-ai.version}</version>
-				<type>pom</type>
-				<scope>import</scope>
-			</dependency>
-		</dependencies>
-	</dependencyManagement>
 
 	<build>
 		<plugins>

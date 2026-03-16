@@ -1,0 +1,18 @@
+spring:
+  main:
+    web-application-type: none
+  kafka:
+    bootstrap-servers: localhost:9092
+  ai:
+    anthropic:
+      api-key: ${ANTHROPIC_API_KEY}
+      chat:
+        options:
+          model: claude-sonnet-4-5-20250929
+    agent:
+      serve:
+        kafka:
+          requests-topic: agent-requests
+          answers-topic: agent-answers
+          events-topic: agent-events
+          consumer-group: agent-serve

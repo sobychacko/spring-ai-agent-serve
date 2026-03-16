@@ -29,7 +29,8 @@
         <module>websocket/cli-client</module>
         <module>sse/chatbot-demo</module>
         <module>sse/cli-client</module>
-        <module>programmatic-demo</module>
+        <module>kafka/agent-processor</module>
+        <module>kafka/cli-client</module>
     </modules>
 
     <repositories>

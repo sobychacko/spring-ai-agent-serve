@@ -10,10 +10,10 @@
 		<version>0.1.0-SNAPSHOT</version>
 	</parent>
 
-	<artifactId>spring-ai-agent-serve-sse</artifactId>
+	<artifactId>spring-ai-agent-serve-kafka</artifactId>
 	<version>0.1.0-SNAPSHOT</version>
-	<name>spring-ai-agent-serve-sse</name>
-	<description>Spring AI Agent Serve SSE Transport - Server-Sent Events transport for serving agents over HTTP</description>
+	<name>spring-ai-agent-serve-kafka</name>
+	<description>Spring AI Agent Serve Kafka Transport - Kafka consumer/producer transport for serving agents in event-driven architectures</description>
 
 	<url>https://github.com/spring-ai-community/spring-ai-agent-serve</url>
 
@@ -55,16 +55,9 @@
 		</dependency>
 
 		<dependency>
-			<groupId>org.springframework</groupId>
-			<artifactId>spring-web</artifactId>
-			<version>${spring-framework.version}</version>
-			<scope>provided</scope>
-		</dependency>
-
-		<dependency>
-			<groupId>org.springframework</groupId>
-			<artifactId>spring-webmvc</artifactId>
-			<version>${spring-framework.version}</version>
+			<groupId>org.springframework.kafka</groupId>
+			<artifactId>spring-kafka</artifactId>
+			<version>${spring-kafka.version}</version>
 			<scope>provided</scope>
 		</dependency>
 

@@ -28,7 +28,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 
 import org.springaicommunity.agent.serve.AgentEvent;
 import org.springaicommunity.agent.serve.cli.ConsoleEventRenderer.QuestionPrompt;

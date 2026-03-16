@@ -85,7 +85,7 @@ public class AgentSseController {
 	 * @return an {@link SseEmitter} streaming agent events
 	 */
 	@GetMapping(value = "/{sessionId}/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-	public SseEmitter connect(@PathVariable String sessionId) {
+	public SseEmitter connect(@PathVariable("sessionId") String sessionId) {
 		String resolvedSessionId = sessionId;
 		if ("new".equals(sessionId)) {
 			resolvedSessionId = UUID.randomUUID().toString();
@@ -120,7 +120,7 @@ public class AgentSseController {
 	 * @return {@code 202 Accepted} with the session ID
 	 */
 	@PostMapping("/{sessionId}/messages")
-	public ResponseEntity<Map<String, String>> sendMessage(@PathVariable String sessionId,
+	public ResponseEntity<Map<String, String>> sendMessage(@PathVariable("sessionId") String sessionId,
 			@RequestBody AgentRequest request) {
 		logger.debug("Received message for session [{}]", sessionId);
 
@@ -138,7 +138,7 @@ public class AgentSseController {
 	 * @return {@code 204 No Content} on success, {@code 404 Not Found} if session unknown
 	 */
 	@PostMapping("/{sessionId}/answers")
-	public ResponseEntity<Void> sendAnswer(@PathVariable String sessionId,
+	public ResponseEntity<Void> sendAnswer(@PathVariable("sessionId") String sessionId,
 			@RequestBody QuestionAnswer answer) {
 		logger.debug("Received answer for session [{}], question [{}]", sessionId, answer.questionId());
 
