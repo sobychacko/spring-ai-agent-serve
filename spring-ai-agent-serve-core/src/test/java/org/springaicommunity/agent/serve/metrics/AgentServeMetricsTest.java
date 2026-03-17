@@ -92,23 +92,6 @@ class AgentServeMetricsTest {
 	}
 
 	@Test
-	@DisplayName("Should increment tool call counter")
-	void shouldIncrementToolCallCounter() {
-		this.metrics.toolCallStarted();
-
-		assertThat(this.registry.get("agent.serve.tool.calls").counter().count()).isEqualTo(1.0);
-	}
-
-	@Test
-	@DisplayName("Should record tool call duration")
-	void shouldRecordToolCallDuration() {
-		Timer.Sample sample = this.metrics.startToolCallTimer();
-		this.metrics.toolCallCompleted(sample);
-
-		assertThat(this.registry.get("agent.serve.tool.duration").timer().count()).isEqualTo(1);
-	}
-
-	@Test
 	@DisplayName("Should increment question timeout counter")
 	void shouldIncrementQuestionTimeoutCounter() {
 		this.metrics.questionTimedOut();

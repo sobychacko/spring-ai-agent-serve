@@ -59,12 +59,12 @@ This project borrows the same naming convention. The "serve" in the name signals
 ## What It Does
 
 - **Exposes a ChatClient to remote clients** over SSE+REST, WebSocket (STOMP), Kafka, or AMQP (RabbitMQ)
-- **Manages sessions** — each client gets an isolated `ChatClient` instance and conversation memory
+- **Manages sessions** — each client gets an isolated `ChatClient` instance and conversation memory, with pluggable storage (in-memory, JDBC, Redis, or Cassandra via Spring AI's `ChatMemoryRepository`)
 - **Serializes requests per session** — concurrent messages queue up rather than racing
 - **Streams responses in real time** — text chunks, tool call events, and question prompts are pushed as they happen
 - **Bridges AskUserQuestionTool** — questions are pushed to the client; answers flow back and the agent resumes (requires [agent-utils](https://github.com/spring-ai-community/spring-ai-agent-utils) on classpath)
 - **Evicts idle sessions** — configurable TTL-based cleanup prevents unbounded memory growth
-- **Reports metrics and health** — Micrometer counters, gauges, and timers for sessions, requests, tool calls, and question timeouts; Actuator health indicator for operational monitoring
+- **Reports metrics and health** — Micrometer counters, gauges, and timers for sessions, requests, and question timeouts; Actuator health indicator for operational monitoring
 - **Auto-configures** — add a starter dependency and provide a `ChatClient.Builder` bean
 
 ## Where This Fits
@@ -396,6 +396,41 @@ User sends "read file A"                 User sends "read file A"
 
 Idle sessions are automatically evicted after the configured TTL (default: 30 minutes). Any interaction with a session (sending a message, answering a question) refreshes the TTL. The eviction scheduler runs periodically (default: every 60 seconds) and cleans up sessions that have been idle longer than the TTL. `InMemoryAgentSessionManager` implements `AutoCloseable` — on shutdown, it stops the scheduler and destroys all active sessions.
 
+### Persistent Session Memory
+
+By default, conversation memory is stored in-memory and lost on restart. For production deployments where conversation history should survive restarts or be shared across nodes, the serve layer integrates with Spring AI's pluggable `ChatMemoryRepository` abstraction.
+
+Add a Spring AI memory repository starter to your classpath and conversation history is automatically persisted. No serve layer configuration is needed — Spring AI's auto-configuration creates the repository bean, and the serve layer picks it up.
+
+**JDBC** (PostgreSQL, MySQL, H2, SQLite, MariaDB, Oracle, SQL Server):
+
+```xml
+<dependency>
+    <groupId>org.springframework.ai</groupId>
+    <artifactId>spring-ai-starter-model-chat-memory-repository-jdbc</artifactId>
+</dependency>
+```
+
+**Redis:**
+
+```xml
+<dependency>
+    <groupId>org.springframework.ai</groupId>
+    <artifactId>spring-ai-starter-model-chat-memory-redis</artifactId>
+</dependency>
+```
+
+**Cassandra:**
+
+```xml
+<dependency>
+    <groupId>org.springframework.ai</groupId>
+    <artifactId>spring-ai-starter-model-chat-memory-repository-cassandra</artifactId>
+</dependency>
+```
+
+Configure the underlying data store (datasource, Redis connection, or Cassandra session) through the standard Spring Boot properties. The serve layer shares the same `ChatMemoryRepository` across all sessions — each session uses its own `conversationId` as the namespace within the repository.
+
 ## Architecture
 
 ```
@@ -540,9 +575,9 @@ When Micrometer is on the classpath, the serve layer automatically registers met
 | `agent.serve.sessions.evicted` | Counter | Sessions evicted due to idle TTL |
 | `agent.serve.requests` | Counter | Total streaming requests processed |
 | `agent.serve.request.duration` | Timer | Time from request submission to stream completion |
-| `agent.serve.tool.calls` | Counter | Total tool executions across all sessions |
-| `agent.serve.tool.duration` | Timer | Individual tool execution time |
 | `agent.serve.questions.timed.out` | Counter | Questions that expired before the user answered |
+
+Tool call metrics (execution count and duration) are provided by Spring AI's built-in Micrometer observation pipeline via `DefaultToolCallingManager` and are available automatically when Micrometer is on the classpath.
 
 These metrics are available through any Micrometer-supported monitoring system — Prometheus, Grafana, Datadog, CloudWatch, and others. No additional configuration is needed beyond having Micrometer on the classpath.
 
@@ -648,10 +683,9 @@ Each transport module is self-contained with its own auto-configuration and prop
 
 ## Current Status
 
-Early release (0.1.0-SNAPSHOT). Four transports available: SSE+REST (recommended for client-facing), WebSocket (STOMP), Kafka, and AMQP (RabbitMQ). Observability via Micrometer metrics and Actuator health indicator.
+Early release (0.1.0-SNAPSHOT). Four transports available: SSE+REST (recommended for client-facing), WebSocket (STOMP), Kafka, and AMQP (RabbitMQ). Pluggable session memory via Spring AI's `ChatMemoryRepository` (JDBC, Redis, Cassandra). Observability via Micrometer metrics and Actuator health indicator.
 
 **Planned:**
-- Pluggable session storage (Redis, JDBC)
 - Request cancellation
 - Security integration points
 

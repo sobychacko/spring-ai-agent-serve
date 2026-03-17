@@ -46,10 +46,6 @@ public class AgentServeMetrics {
 
 	private final Timer requestDuration;
 
-	private final Counter toolCalls;
-
-	private final Timer toolDuration;
-
 	private final Counter questionsTimedOut;
 
 	public AgentServeMetrics(MeterRegistry registry) {
@@ -59,8 +55,6 @@ public class AgentServeMetrics {
 		this.sessionsEvicted = registry.counter(PREFIX + "sessions.evicted");
 		this.requests = registry.counter(PREFIX + "requests");
 		this.requestDuration = registry.timer(PREFIX + "request.duration");
-		this.toolCalls = registry.counter(PREFIX + "tool.calls");
-		this.toolDuration = registry.timer(PREFIX + "tool.duration");
 		this.questionsTimedOut = registry.counter(PREFIX + "questions.timed.out");
 	}
 
@@ -87,18 +81,6 @@ public class AgentServeMetrics {
 
 	public void requestCompleted(Timer.Sample sample) {
 		sample.stop(this.requestDuration);
-	}
-
-	public void toolCallStarted() {
-		this.toolCalls.increment();
-	}
-
-	public Timer.Sample startToolCallTimer() {
-		return Timer.start(this.registry);
-	}
-
-	public void toolCallCompleted(Timer.Sample sample) {
-		sample.stop(this.toolDuration);
 	}
 
 	public void questionTimedOut() {
