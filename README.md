@@ -1,6 +1,26 @@
 # Spring AI Agent Serve
 
-Building blocks for assembling your own agent runtime on Spring AI — sessions, streaming, tool call events, and transport for multi-user applications.
+An embeddable Spring Boot library that adds session management, event framing, and multi-transport delivery to your Spring AI agents — so multiple users can interact with them over the network. Add a starter dependency, provide a `ChatClient.Builder` bean, and your agent is served.
+
+- **Session management** — each user gets an isolated `ChatClient` with its own conversation memory, and concurrent requests are serialized to prevent state corruption.
+- **Event framing** — Spring AI's raw `ChatClient.stream()` produces `Flux<ChatResponse>` chunks; the serve layer translates these into typed `AgentEvent` messages (`RESPONSE_CHUNK`, `TOOL_CALL_STARTED`, `TOOL_CALL_COMPLETED`, `QUESTION_REQUIRED`, `FINAL_RESPONSE`, `ERROR`) that clients can render directly.
+- **Human-in-the-loop** — when an agent needs user input mid-execution (e.g., clarifying a question before proceeding), the serve layer bridges this over the network: the question is pushed to the client, the agent thread pauses, and processing resumes when the answer arrives.
+- **Multi-transport delivery** — those events are delivered over SSE, WebSocket (STOMP), Kafka, or AMQP (RabbitMQ), with a single transport per application.
+
+```
+                    spring-ai-agent-serve                       Spring AI
+                 ┌──────────────────────────┐            ┌──────────────────────┐
+Browser ──┐      │  Transport               │            │  ChatClient          │
+          │      │  (SSE, WebSocket,        │  delegate  │   .prompt()          │
+CLI ──────┼─────>│   Kafka, AMQP)           ├───────────>│   .stream()          │
+          │      │                          │            │                      │
+App ──────┘      │  AgentSession            │            │  Tools, Memory,      │
+                 │  (isolation, memory,     │            │  Advisors            │
+                 │   serial execution,      │            │                      │
+                 │   event framing)         │            │  AI Model            │
+                 └──────────────────────────┘            │  (Claude, OpenAI...) │
+                                                         └──────────────────────┘
+```
 
 ## The Problem
 
@@ -8,47 +28,42 @@ A Spring AI agent is a `ChatClient` with tools. It works well in a single-proces
 
 For plain chat, a REST controller returning `Flux<String>` is enough. But agents are different:
 
-- **Tool calls create silent gaps.** Spring AI's streaming gives you tokens in real time as the LLM generates text. But when the agent decides to call a tool, the stream pauses — Spring AI executes the tool internally and the subscriber sees nothing until the LLM resumes generating. Without tool call events (`TOOL_CALL_STARTED`/`TOOL_CALL_COMPLETED`), the UI shows streaming text that suddenly freezes for several seconds with no indication of why.
-- **Multiple users need isolation.** Two users hitting the same endpoint shouldn't see each other's conversation history or interfere with each other's tool executions.
-- **Concurrent requests corrupt state.** Two messages to the same session at once can interleave tool executions and corrupt conversation memory.
+- **Multiple users need isolation.** Two users hitting the same endpoint shouldn't see each other's conversation history or interfere with each other's tool executions. Each user needs their own session with its own memory.
+- **Concurrent requests corrupt state.** Two messages to the same session at once can interleave tool executions and corrupt conversation memory. Requests need to be serialized per session.
 - **Agents ask questions back.** When an agent calls `AskUserQuestionTool` mid-stream, the user needs to answer before the agent can continue. Coordinating this over a network — push the question to the browser, block the agent thread, wait for the answer, resume — is tricky to get right.
+- **Tool calls benefit from real-time visibility.** When an agent calls tools during streaming, showing which tool is running and when it finishes helps users understand what the agent is doing. Spring AI's `ToolCallAdvisor` handles the streaming tool call loop, but per-tool start/stop events for the UI require additional instrumentation at the execution layer.
 
-If you have three teams building Spring AI agents (sales, supply chain, billing), each team ends up writing its own session isolation, request serialization, streaming event framing, and transport plumbing. Three slightly different implementations, three different threading approaches.
+Spring AI provides the building blocks for all of this — `ChatMemory` with `conversationId` for per-conversation message storage, `ChatMemoryRepository` for pluggable persistence, and `ChatClient.Builder.clone()` for creating isolated client instances. But composing these into a multi-user server — generating and tracking session IDs, binding memory advisors per session, serializing concurrent requests, managing session lifecycle, and delivering streaming events over a network transport — is application-level plumbing that each team would need to build and maintain.
 
-This project packages those common concerns so teams can focus on their agent's domain logic instead.
+If you have three teams building Spring AI agents (sales, supply chain, billing), each team ends up writing its own version of this plumbing. Three slightly different implementations, three different threading approaches.
+
+This project composes Spring AI's primitives into a reusable session and transport layer so teams can focus on their agent's domain logic instead.
 
 ## Landscape
 
-The serving layer — session management, streaming, transport, and interactive feedback — is a distinct concern from agent construction. Most agent frameworks focus on the latter. The industry has converged on a common set of capabilities for the former, delivered either as managed platforms or as libraries.
+The serving layer — session management, streaming event delivery, transport, and interactive feedback — is a distinct concern from agent construction. The industry has recognized this, and several approaches exist.
 
 ### Managed Platforms
 
-Cloud providers offer hosted agent runtime infrastructure as part of their AI platforms:
+Cloud providers offer comprehensive managed platforms for running agents in production:
 
-- [**AWS Bedrock AgentCore**](https://aws.amazon.com/bedrock/agentcore/) — a managed runtime with session isolation, short-term and long-term memory stores, an agent gateway for protocol support (MCP, A2A), identity management, and observability. Supports agents built with multiple frameworks (CrewAI, LangGraph, Strands, and others).
+- [**AWS Bedrock AgentCore**](https://aws.amazon.com/bedrock/agentcore/) — managed runtimes, distributed memory stores (short-term and long-term), an agent gateway with MCP and A2A protocol support, identity management, policy enforcement, and observability. Supports agents built with multiple frameworks.
 
-- [**Google Vertex AI Agent Engine**](https://cloud.google.com/vertex-ai/generative-ai/docs/agent-engine/overview) — managed deployment with session management, a memory bank for cross-session personalization, code execution sandboxing, and built-in evaluation. Supports agents built with LangChain, LangGraph, Google ADK, and other frameworks.
+- [**Google Vertex AI Agent Engine**](https://cloud.google.com/vertex-ai/generative-ai/docs/agent-engine/overview) — managed deployment with session management, a memory bank for cross-session personalization, code execution sandboxing, content safety, and built-in evaluation.
 
-- [**Microsoft Foundry Agent Service**](https://learn.microsoft.com/en-us/azure/foundry/agents/overview) — managed agent hosting with conversation management, tool orchestration, content safety, and identity integration. Supports agents built with Microsoft Agent Framework as well as third-party frameworks.
+- [**Microsoft Foundry Agent Service**](https://learn.microsoft.com/en-us/azure/foundry/agents/overview) — managed agent hosting with conversation management, tool orchestration, content safety, identity integration, and multi-agent workflow orchestration.
 
-- [**LangGraph Platform**](https://langchain-ai.github.io/langgraph/concepts/langgraph_platform/) — per-thread isolation, multiple streaming modes, double-texting handling, human-in-the-loop endpoints, and background task queues. Python-only, designed for LangGraph state machine-based agents.
+- [**LangGraph Platform**](https://langchain-ai.github.io/langgraph/concepts/langgraph_platform/) — durable execution with checkpointing, multiple streaming modes, human-in-the-loop endpoints, and background task queues. Python-only.
 
-These platforms share a common set of capabilities:
-
-| Capability | [Bedrock AgentCore](https://aws.amazon.com/bedrock/agentcore/) | [Vertex Agent Engine](https://cloud.google.com/vertex-ai/generative-ai/docs/agent-engine/overview) | [Foundry Agent Service](https://learn.microsoft.com/en-us/azure/foundry/agents/overview) | [LangGraph Platform](https://langchain-ai.github.io/langgraph/concepts/langgraph_platform/) | **spring-ai-agent-serve** |
-|---|---|---|---|---|---|
-| Session isolation | Managed runtime | Session management | Conversation management | Per-thread isolation | Per-session `ChatClient` via `clone()` |
-| Conversation memory | Short-term + long-term stores | Memory bank | Conversation history | Checkpointed state | `MessageWindowChatMemory` per session |
-| Streaming events | Event streaming | Streaming responses | Streaming | Multiple streaming modes | `RESPONSE_CHUNK`, `TOOL_CALL_*`, `FINAL_RESPONSE` |
-| Human-in-the-loop | Tool approval (approve/reject) | Tool confirmation (structured input) | Tool approval (approve/reject) | Freeform (`interrupt()` + resume) | Freeform (`AskUserQuestionTool` bridge) |
-| Transport | Agent gateway (MCP, A2A) | REST API | REST API | REST API | SSE, WebSocket, STOMP, Kafka, AMQP |
-| Request serialization | Managed | Managed | Managed | Double-texting handling | Single-threaded executor per session |
-
-A note on human-in-the-loop: most platforms provide tool approval gates — the agent proposes a tool call and the user approves or rejects it. This is useful for safety but limited in scope. A different capability is interactive feedback, where the agent asks the user a freeform question mid-execution (e.g., "Which database should I migrate — staging or production?"), pauses, and resumes when the answer arrives. LangGraph supports this via its `interrupt()` function. This project provides the same capability for Spring AI agents via the `AskUserQuestionTool` bridge, which coordinates the blocking agent thread with asynchronous client transport using `CompletableFuture`.
+These platforms provide far more than session management — managed infrastructure, auto-scaling, security, and operational tooling. They are the right choice when you need fully operated agent infrastructure.
 
 ### Agent Frameworks
 
-Agent frameworks on the JVM focus on agent construction — models, tools, memory, orchestration. [Spring AI](https://docs.spring.io/spring-ai/reference/), [LangChain4j](https://docs.langchain4j.dev/), [Semantic Kernel](https://learn.microsoft.com/en-us/semantic-kernel/overview/), [Embabel](https://github.com/embabel/embabel-agent), and [Koog](https://github.com/JetBrains/koog) all provide excellent tooling for building agents, but don't include a reusable serving layer for sessions and transport. This project aims to provide that layer for the Spring AI ecosystem, so teams don't have to build it from scratch.
+Agent frameworks on the JVM — [Spring AI](https://docs.spring.io/spring-ai/reference/), [LangChain4j](https://docs.langchain4j.dev/), [Semantic Kernel](https://learn.microsoft.com/en-us/semantic-kernel/overview/), [Embabel](https://github.com/embabel/embabel-agent), and [Koog](https://github.com/JetBrains/koog) — provide excellent tooling for building agents (models, tools, memory, orchestration), but do not include a reusable serving layer for sessions and transport.
+
+### Where This Project Fits
+
+This project is not a managed platform. It is an embeddable Spring Boot library that addresses a narrower concern: serving a Spring AI `ChatClient` to multiple users over the network with session isolation, event framing, and transport abstraction. It handles sessions, serialization, streaming events, and interactive feedback bridging — the plumbing between a `ChatClient` and remote clients. Authentication, content safety, scaling, and operational infrastructure remain the application's responsibility.
 
 ### Why "Serve"
 
@@ -103,17 +118,15 @@ See the [Kafka Agent Processor](examples/kafka/agent-processor) or the [AMQP Age
 
 ## Use Cases
 
-**Governed AI-assisted development** — An enterprise that wants to provide AI coding assistance to developers while controlling how code interacts with AI — particularly important in financial services, healthcare, and other regulated industries where code handles sensitive data and compliance requirements govern how AI tools are used. Instead of individual developers sending code to various external LLM providers from their laptops, all AI interactions are routed through a centralized agent service. The enterprise controls which LLM provider is used (including self-hosted models), enforces access policies on which repositories and tools are available, selectively exposes internal MCP servers (database schemas, deployment pipelines, internal APIs) as tools the agent can use, and logs every interaction for audit. Developers interact through a browser or a thin CLI client that the enterprise develops and deploys to developer machines; the LLM API calls happen server-side within the enterprise's network policies.
+Each of these requires what a plain `ChatClient` call doesn't provide: multiple users with isolated sessions, streaming events over the network, or interactive feedback bridging.
 
-**Internal tools** — A DevOps assistant where developers ask *"Why did the staging deploy fail?"* and the agent calls `ci_logs` and `k8s_status` tools, streaming progress indicators while it works.
+**Governed AI-assisted development** — Multiple developers interact with a centralized AI coding agent through a browser or CLI client. Each developer gets an isolated session. The enterprise controls which LLM provider is used, which tools are available, and can log every interaction. The serve layer provides the multi-user session infrastructure; the LLM API calls happen server-side within the enterprise's network policies.
 
-**Customer-facing chat** — A support agent with product-specific tools (account lookup, billing history). Each customer gets an isolated session with conversation memory.
+**Customer-facing chat** — A support agent with product-specific tools (account lookup, billing history). Each customer gets an isolated session with conversation memory. Streaming events show real-time progress as the agent calls tools.
 
-**Interactive workflows** — An agent that helps users configure complex systems and asks clarifying questions mid-conversation using `AskUserQuestionTool`. The question is pushed to the browser, the user answers, and the agent resumes.
+**Interactive workflows** — An agent that helps users configure complex systems and asks clarifying questions mid-conversation. The question is pushed to the browser, the user answers, and the agent resumes — coordinated across the network via the serve layer's human-in-the-loop bridge.
 
-**Event-driven microservices** — A retailer's support platform where customer messages flow through Kafka or RabbitMQ. The agent calls order tracking and shipping tools, and response events flow back through the broker to the customer's app.
-
-**Async batch processing** — An insurance company's claims department. An AI agent processes 200 claim documents overnight — reads each document, calls a `policy_lookup` tool to check coverage, calls a `fraud_signals` tool to flag inconsistencies, and writes a preliminary assessment. Adjusters review the next morning. No client is watching the stream, but session isolation still matters (each claim is its own conversation) and tool call observation matters for operational monitoring.
+**Event-driven microservices** — A retailer's support platform where customer messages flow through Kafka or RabbitMQ. The agent calls order tracking and shipping tools, and response events flow back through the broker to the customer's app. Each customer's conversation is isolated via session management.
 
 ## Quick Start
 
@@ -251,7 +264,8 @@ Same pattern as Kafka — the agent processor consumes from RabbitMQ queues and 
 | [AMQP Agent Processor](examples/amqp/agent-processor) | Backend agent service consuming/producing via RabbitMQ |
 | [AMQP CLI Client](examples/amqp/cli-client) | Terminal client interacting with the agent over RabbitMQ |
 
-## SSE Endpoints
+<details>
+<summary><h2>SSE Endpoints</h2></summary>
 
 SSE is inherently half-duplex (server-to-client only), so client-to-server communication uses standard REST POST endpoints. This is simpler than WebSocket/STOMP and works through proxies and load balancers without special configuration.
 
@@ -261,7 +275,10 @@ SSE is inherently half-duplex (server-to-client only), so client-to-server commu
 | `POST` | `/api/agent/sessions/{sessionId}/messages` | Sends a user message to the agent. The response streams back on the SSE connection. Returns `202 Accepted`. |
 | `POST` | `/api/agent/sessions/{sessionId}/answers` | Resolves a pending question from `AskUserQuestionTool`. Returns `204 No Content` on success, `404 Not Found` if the session is unknown. |
 
-## WebSocket Endpoints
+</details>
+
+<details>
+<summary><h2>WebSocket Endpoints</h2></summary>
 
 WebSocket uses STOMP (Simple Text Oriented Messaging Protocol) over SockJS. Clients connect to the STOMP endpoint (default `/ws`), send messages to application destinations, and subscribe to topics for responses.
 
@@ -295,7 +312,10 @@ stompClient.connect({}, () => {
 });
 ```
 
-## Kafka Topics
+</details>
+
+<details>
+<summary><h2>Kafka Topics</h2></summary>
 
 The Kafka transport uses three topics for communication between the upstream application and the agent processor. All topic names are configurable.
 
@@ -318,7 +338,10 @@ echo '{"sessionId":"session-1","message":"What is Spring AI?"}' | \
 kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic agent-events
 ```
 
-## AMQP Queues and Exchange
+</details>
+
+<details>
+<summary><h2>AMQP Queues and Exchange</h2></summary>
 
 The AMQP transport uses two queues for inbound messages and a topic exchange for outbound events. All names are configurable. The AMQP topology (queues and exchange) is declared automatically on startup.
 
@@ -330,7 +353,10 @@ The AMQP transport uses two queues for inbound messages and a topic exchange for
 
 The `sessionId` as the routing key allows downstream consumers to bind queues with specific routing keys to receive events for individual sessions — RabbitMQ does the filtering server-side, unlike Kafka where consumers filter by key client-side.
 
-## Event Types
+</details>
+
+<details>
+<summary><h2>Event Types</h2></summary>
 
 The serve layer emits typed events so clients can render agent activity in real time. All events share the same `AgentEvent` record structure:
 
@@ -355,7 +381,10 @@ public record AgentEvent(
 
 The `metadata` map uses `Map<String, Object>` rather than `Map<String, String>` because the `questions` value in `QUESTION_REQUIRED` is a complex object (list of questions with options) that Jackson serializes to a JSON array.
 
-## How Sessions Work
+</details>
+
+<details>
+<summary><h2>How Sessions Work</h2></summary>
 
 ```
 Client connects with sessionId
@@ -364,8 +393,8 @@ Client connects with sessionId
 AgentSessionManager.getOrCreate(sessionId)
   |
   +-- First time? Create new AgentSession:
-  |     - Clone the ChatClient.Builder (for isolation)
-  |     - Create a new MessageWindowChatMemory for this session
+  |     - Clone the ChatClient.Builder (lightweight — shares the underlying ChatModel)
+  |     - Create per-session ChatMemory (backed by pluggable ChatMemoryRepository)
   |     - Bind MessageChatMemoryAdvisor with conversationId
   |     - Wrap tools with ObservableToolCallback for event emission
   |     - Wire AskUserQuestionTool with ServeQuestionHandler (if agent-utils present)
@@ -431,30 +460,20 @@ Add a Spring AI memory repository starter to your classpath and conversation his
 
 Configure the underlying data store (datasource, Redis connection, or Cassandra session) through the standard Spring Boot properties. The serve layer shares the same `ChatMemoryRepository` across all sessions — each session uses its own `conversationId` as the namespace within the repository.
 
-## Architecture
+### Scalability
 
-```
-Clients                          Serve                           Agent Stack
----------                        -----                           -----------
+Each session creates a per-session `ChatClient` via `ChatClient.Builder.clone()`. This is lightweight — the clone copies the default request configuration (system prompt, tool references, advisor references) but shares the underlying `ChatModel`, which holds the HTTP connection pool to the LLM provider. A thousand sessions do not create a thousand HTTP clients — they share one.
 
-Browser --+                  +- Transport --+                  +- ChatClient
-           |                  |  SSE+REST     |                  |   .prompt()
-CLI -------+-- connect ------>|  WebSocket    +-- delegate ----->|   .stream()
-           |                  |  Kafka        |                  |
-           |                  |  AMQP         |                  |
-App ------+                  +------+-------+                  +- agent-utils
-                                    |                          |   tools, skills
-                             AgentSession                      |   subagents
-                             (per-client state,                |   advisors
-                              memory binding,                  |
-                              request queuing)                 +- Memory
-                                                               |   (per-session)
-                                                               |
-                                                               +- AI Model
-                                                                   (Claude, OpenAI, etc.)
-```
+The primary resource cost per session is the single-threaded executor. Each session gets its own thread to serialize requests. At scale, the thread count is bounded by session eviction (idle sessions are destroyed after the configured TTL), so the concurrent thread count reflects active users, not total users over time.
 
-All agent behavior stays inside `ChatClient` and agent-utils. This project handles transport, sessions, and protocol bridging.
+For higher scale, the executor can be switched to virtual threads (Java 21+), which removes the platform thread overhead entirely. This is a one-line change in `AgentSession` and does not affect the rest of the architecture.
+
+</details>
+
+<details>
+<summary><h2>Architecture</h2></summary>
+
+All agent behavior stays inside `ChatClient` and Spring AI (see [diagram above](#spring-ai-agent-serve)). This project handles transport, sessions, and protocol bridging.
 
 ### Layer Responsibilities
 
@@ -478,7 +497,10 @@ Each application uses a **single transport**. Pick a starter:
 
 SSE is the recommended default for client-facing applications. It works through proxies and load balancers without special configuration, uses the browser's native `EventSource` API, and follows the same pattern used by most AI API providers. Kafka and AMQP are the recommended choices for backend agent services in event-driven architectures where the agent is a consumer/producer behind a message broker.
 
-## Configuration
+</details>
+
+<details>
+<summary><h2>Configuration</h2></summary>
 
 ### Core Properties
 
@@ -562,7 +584,10 @@ The AMQP transport reuses Spring Boot's standard `spring.rabbitmq.*` properties 
 
 Each transport module owns its own `@ConfigurationProperties` class (`AgentSseProperties`, `AgentWebSocketProperties`, `AgentKafkaProperties`, `AgentAmqpProperties`), so there is no configuration conflict between modules.
 
-## Observability
+</details>
+
+<details>
+<summary><h2>Observability</h2></summary>
 
 When Micrometer is on the classpath, the serve layer automatically registers metrics for monitoring session activity, request processing, tool execution, and question handling.
 
@@ -616,7 +641,10 @@ Observability is automatic when the dependencies are present. The SSE starter, W
 
 Metrics and the health indicator are registered via `@ConditionalOnClass` — if Micrometer or Actuator is not on the classpath, no metrics code runs and there is no impact on the application.
 
-## Customization
+</details>
+
+<details>
+<summary><h2>Customization</h2></summary>
 
 Every auto-configured bean uses `@ConditionalOnMissingBean`. Define your own and the default backs off:
 
@@ -651,50 +679,29 @@ session.submitStream(toAgentRequest(req), event -> observer.onNext(toGrpcEvent(e
 session.submitStream(request, event -> myTransport.send(sessionId, event));
 ```
 
+</details>
+
 ## Project Structure
 
-```
-spring-ai-agent-serve/
-+-- spring-ai-agent-serve-core/              # Sessions, events, tool observability, question bridge, metrics
-+-- spring-ai-agent-serve-sse/               # SSE + REST transport
-+-- spring-ai-agent-serve-websocket/         # WebSocket (STOMP) transport
-+-- spring-ai-agent-serve-kafka/             # Kafka consumer/producer transport
-+-- spring-ai-agent-serve-amqp/             # AMQP (RabbitMQ) consumer/producer transport
-+-- spring-ai-agent-serve-starter-sse/       # Spring Boot starter for SSE
-+-- spring-ai-agent-serve-starter-websocket/ # Spring Boot starter for WebSocket
-+-- spring-ai-agent-serve-starter-kafka/     # Spring Boot starter for Kafka
-+-- spring-ai-agent-serve-starter-amqp/     # Spring Boot starter for AMQP (RabbitMQ)
-+-- examples/
-    +-- sse/
-    |   +-- chatbot-demo/                   # Browser chat UI over SSE
-    |   +-- cli-client/                     # Terminal client over SSE
-    +-- websocket/
-    |   +-- chatbot-demo/                   # Browser chat UI over WebSocket
-    |   +-- cli-client/                     # Terminal client over STOMP
-    +-- kafka/
-    |   +-- agent-processor/               # Backend agent service over Kafka
-    |   +-- cli-client/                     # Terminal client over Kafka
-    +-- amqp/
-        +-- agent-processor/               # Backend agent service over RabbitMQ
-        +-- cli-client/                     # Terminal client over RabbitMQ
-```
+The library is organized as a core module plus pluggable transport modules, each with a corresponding Spring Boot starter:
+
+| Module | Purpose |
+|--------|---------|
+| `spring-ai-agent-serve-core` | Sessions, events, tool observability, question bridge, metrics |
+| `spring-ai-agent-serve-sse` | SSE + REST transport |
+| `spring-ai-agent-serve-websocket` | WebSocket (STOMP) transport |
+| `spring-ai-agent-serve-kafka` | Kafka consumer/producer transport |
+| `spring-ai-agent-serve-amqp` | AMQP (RabbitMQ) consumer/producer transport |
+| `spring-ai-agent-serve-starter-*` | Spring Boot starters (one per transport) |
 
 Each transport module is self-contained with its own auto-configuration and properties. The core module has zero transport dependencies.
 
 ## Current Status
 
-Early release (0.1.0-SNAPSHOT). Four transports available: SSE+REST (recommended for client-facing), WebSocket (STOMP), Kafka, and AMQP (RabbitMQ). Pluggable session memory via Spring AI's `ChatMemoryRepository` (JDBC, Redis, Cassandra). Observability via Micrometer metrics and Actuator health indicator.
-
-**Planned:**
-- Request cancellation
-- Security integration points
+Four transports available: SSE+REST (recommended for client-facing), WebSocket (STOMP), Kafka, and AMQP (RabbitMQ). Pluggable session memory via Spring AI's `ChatMemoryRepository` (JDBC, Redis, Cassandra). Observability via Micrometer metrics and Actuator health indicator.
 
 ## Requirements
 
 - Java 17+
 - Spring Boot 4.0.0+
 - Spring AI 2.0.0-M2+
-
-## License
-
-Apache License 2.0
