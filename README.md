@@ -1,6 +1,6 @@
 # Spring AI Agent Serve
 
-An embeddable Spring Boot library that adds session management, event framing, and multi-transport delivery to your Spring AI agents — so multiple users can interact with them over the network. Add a starter dependency, provide a `ChatClient.Builder` bean, and your agent is served.
+An embeddable Spring Boot library that adds session management, event framing, and multi-transport delivery to your Spring AI agents — so multiple users can interact with them over the network. You focus on the agent's domain logic — tools, skills, and system prompt. The serve layer handles sessions, streaming, and transport. Add a starter dependency, provide a `ChatClient.Builder` bean, and your agent is served.
 
 - **Session management** — each user gets an isolated `ChatClient` with its own conversation memory, and concurrent requests are serialized to prevent state corruption.
 - **Event framing** — Spring AI's raw `ChatClient.stream()` produces `Flux<ChatResponse>` chunks; the serve layer translates these into typed `AgentEvent` messages (`RESPONSE_CHUNK`, `TOOL_CALL_STARTED`, `TOOL_CALL_COMPLETED`, `QUESTION_REQUIRED`, `FINAL_RESPONSE`, `ERROR`) that clients can render directly.
@@ -24,20 +24,25 @@ App ──────┘      │  AgentSession            │            │  
 
 ## The Problem
 
-A Spring AI agent is a `ChatClient` with tools. It works well in a single-process application. The challenge comes when multiple users need to interact with that agent over the network — through a browser, CLI, or mobile app.
+A Spring AI agent is a `ChatClient` with tools. Deploying it behind a REST controller works — until multiple users start using it. Here's what happens:
 
-For plain chat, a REST controller returning `Flux<String>` is enough. But agents are different:
+**Conversations bleed across users.** Two support agents hit the endpoint at the same time. Both conversations go into the same `ChatMemory`. User A asks about order 789, User B asks about order 456. User A says "cancel it" — the agent cancels order 456, because that's the most recent one in the shared history. You add `conversationId` to isolate memory per user. That's one problem solved.
 
-- **Multiple users need isolation.** Two users hitting the same endpoint shouldn't see each other's conversation history or interfere with each other's tool executions. Each user needs their own session with its own memory.
-- **Concurrent requests corrupt state.** Two messages to the same session at once can interleave tool executions and corrupt conversation memory. Requests need to be serialized per session.
-- **Agents ask questions back.** When an agent calls `AskUserQuestionTool` mid-stream, the user needs to answer before the agent can continue. Coordinating this over a network — push the question to the browser, block the agent thread, wait for the answer, resume — is tricky to get right.
-- **Tool calls benefit from real-time visibility.** When an agent calls tools during streaming, showing which tool is running and when it finishes helps users understand what the agent is doing. Spring AI's `ToolCallAdvisor` handles the streaming tool call loop, but per-tool start/stop events for the UI require additional instrumentation at the execution layer.
+**Concurrent requests corrupt state.** A user double-clicks "send." Two requests with the same `conversationId` hit `chatClient.prompt()` simultaneously. Both load the same history, both execute tools, both save — one overwrites the other. A refund gets processed twice. You add a lock per session. That's two problems solved.
 
-Spring AI provides the building blocks for all of this — `ChatMemory` with `conversationId` for per-conversation message storage, `ChatMemoryRepository` for pluggable persistence, and `ChatClient.Builder.clone()` for creating isolated client instances. But composing these into a multi-user server — generating and tracking session IDs, binding memory advisors per session, serializing concurrent requests, managing session lifecycle, and delivering streaming events over a network transport — is application-level plumbing that each team would need to build and maintain.
+**The UI freezes during tool calls.** The agent calls a shipping API that takes 8 seconds. Your REST endpoint blocks — the user sees nothing. You switch to SSE streaming, but when tools run, the stream goes silent with no indication of what's happening. You wrap each tool with a decorator that emits "calling shipping_lookup..." events. That's three problems solved.
 
-If you have three teams building Spring AI agents (sales, supply chain, billing), each team ends up writing its own version of this plumbing. Three slightly different implementations, three different threading approaches.
+**The agent needs to ask the user a question.** "This refund is over $500 — escalate or process directly?" The `AskUserQuestionTool` exists, but it reads from `System.in` — useless in a browser. You build a `CompletableFuture` bridge: push the question as an SSE event, block the agent thread, add a new `/answer` endpoint, complete the future when the answer arrives. That's four problems solved.
 
-This project composes Spring AI's primitives into a reusable session and transport layer so teams can focus on their agent's domain logic instead.
+**Sessions accumulate.** Users close browser tabs without disconnecting. Hundreds of stale sessions pile up. You add a scheduled evictor that tracks last activity and cleans up idle sessions. That's five problems solved.
+
+You now have 600 lines of plumbing — session map, per-session locks, SSE streaming pipeline, tool call decorators, question-answer bridge, session evictor — that have nothing to do with your agent's domain logic. And the billing team just built the same thing with different variable names.
+
+Spring AI provides the primitives for all of this — `ChatMemory` with `conversationId`, `ChatMemoryRepository` for pluggable persistence, `ChatClient.Builder.clone()` for isolated instances. This project composes those primitives into a reusable session and transport layer so teams don't have to build the plumbing themselves.
+
+**When you need this library:** Multiple users interacting with the same agent over the network, each with their own conversation history. Streaming responses in real time. Agents that ask users questions mid-execution. Delivering agent events over SSE, WebSocket, Kafka, or AMQP.
+
+**When you don't:** A single-user application, a batch job, or a simple request/response endpoint. In those cases, `ChatClient` with a `conversationId` parameter is all you need.
 
 ## Landscape
 
@@ -129,6 +134,8 @@ Each of these requires what a plain `ChatClient` call doesn't provide: multiple 
 **Event-driven microservices** — A retailer's support platform where customer messages flow through Kafka or RabbitMQ. The agent calls order tracking and shipping tools, and response events flow back through the broker to the customer's app. Each customer's conversation is isolated via session management.
 
 ## Quick Start
+
+This is the entire application. No controllers, no session management code, no streaming infrastructure — just the agent's capabilities. The serve layer auto-configures everything else.
 
 ### 1. Add the SSE starter
 
